@@ -1,0 +1,164 @@
+# monitoramento do cluster
+GET /_nodes/hot_threads
+
+GET /_nodes/{NODE_NAME}/hot_threads
+
+GET /_cat/thread_pool
+
+GET /_tasks
+
+# consutas simples 
+GET /eks-financial-uat-midway-corp_cards-2020-08-31/_search
+{
+  "profile": "true", 
+  "query": {
+    "match": {"message": "eks"}
+  }
+}
+
+GET /indice/_search
+{
+  "query": {
+    "match": {
+      "appName": "*indice-equipe*"
+    }
+  }
+}
+
+# consulta elaborada 
+GET digibee-uat/_count
+{
+  "query": {
+    "bool" : {
+      "must" : [
+        {"match" : { "appName" : "api-dgb-riachuelo-logistica-cubagem-fromcubscan"}},
+        {"match" : { "level" : "ERROR"}}
+      ],
+      "filter" : {
+        "range": {"@timestamp": {"gte": "now-15m","lte": "now"}}
+      }
+    }
+  }
+}
+
+GET prd-midway-satelites-canais-digitais-eks-*/_count
+{
+  "query": {
+    "bool" : {
+      "must_not" : [
+        {"match": { "statuscode" : "200"}},
+        {"match": { "statuscode" : "404"}},
+        {"match": { "statuscode" : "401"}},
+        {"match": { "statuscode" : "403"}},
+        {"match": { "statuscode" : "412"}},
+        {"match": { "statuscode" : "201"}},
+        {"match": { "statuscode" : "422"}},
+        {"match": { "statuscode" : "400"}},
+        {"match": { "statuscode" : "204"}}
+      ],
+      "filter" : {
+        "range": {"@timestamp": {"gte": "now-10d","lte": "now"}}
+      }
+    }
+  }
+}
+
+#ver todos os doc salvos entre periodos
+GET nome_do_indice/_search
+{
+  "query": {
+    "range": {
+      "nome_do_campo_data": {
+        "gte": "now-1h/d",
+        "lte": "now/d"
+      }
+    }
+  }
+}
+
+# deletar indice 
+DELETE /indice-atual-temp
+
+# Delete por query (use o slices e routing com extremo conhecimento do indice e recursos do elastic ou sera necessario refazer o deploy de tudo!)
+POST 	prd-midway-corebank/_delete_by_query?slices=15&refresh&routing=2&conflicts=abort
+{
+  "query": {
+    "range" : {
+        "@timestamp" : {
+           "gte" : "2020-11-05",
+           "lte" : "2020-11-15"
+        }
+    }
+  }
+}
+
+# habilitar mapeamento de numero (indice precisa ser deletado e não pode existir gravação durante o processo)
+PUT midway-dev-estrategia-credito
+{
+  "mappings":{
+    "numeric_detection": true ou false
+  }
+}
+
+# reindex 
+POST _reindex
+{
+  "source": {
+    "index": "indice-atual"
+  },
+  "dest": {
+    "index": "indice-atual-temp"
+  }
+}
+
+# aumentar o limite de campos (use em ultimo caso opção causa instabilidade do nó recomendavel ajustar na aplicação para fazer o merge de campos ou no logstash, se necessario verifique aumentar as sharges com cuidado pois cada nova shard abre uma conexão com o mesmo volume da original)
+PUT midway-uat-satelites-canais-digitais/_settings
+ { 
+   "index.mapping.total_fields.limit": 10000 
+ }
+ 
+ # criar template (esse é o template padrão usado, basta substituir o nome do mesmo no inicio da chamada, importante o template tem que ser aplicado primeiro antes dos logs serem enviados ou não funciona outro ponto importante não devemos criar template generico pois podem gerar conflitos, este modelo já possui todos os possiveis filtros de data que temos atualmente)
+ PUT _index_template/prd-rchlo-ctx
+{
+  "version": 1,
+  "priority": 100,
+  "template": {
+    "settings": {
+      "index": {
+        "lifecycle": {
+          "name": "prd-rchlo"
+        },
+        "number_of_shards": "1",
+        "number_of_replicas": "0"
+      }
+    },
+    "mappings": {
+      "dynamic": true,
+      "numeric_detection": false,
+      "date_detection": true,
+      "dynamic_date_formats": [
+        "strict_date_optional_time",
+        "yyyy/MM/dd HH:mm:ss Z||yyyy/MM/dd Z",
+        "date_hour_minute_second_fraction",
+        "date_hour_minute_second",
+        "date_time",
+        "date_time_no_millis"
+      ],
+      "_source": {
+        "enabled": true,
+        "includes": [],
+        "excludes": []
+      },
+      "_routing": {
+        "required": false
+      },
+      "dynamic_templates": []
+    }
+  },
+  "index_patterns": [
+    "prd-rchlo-ctx-*"
+  ],
+  "composed_of": [
+    "logs-settings"
+  ]
+}
